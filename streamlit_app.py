@@ -76,18 +76,33 @@ def fetch_page(url: str) -> Tuple[str, str]:
         return url, ""
 
 
-def extract_codes_from_html(html: str) -> List[str]:
+def extract_codes_and_status_from_html(html: str) -> List[Dict[str, str]]:
     if not html:
         return []
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(separator=" ")
     found = CODE_RE.findall(text)
-    normalized = [normalize_code(f) for f in found]
-    # filter out empty
-    return [c for c in normalized if c]
+    
+    results = []
+    text_lower = text.lower()
+    for f in found:
+        code = normalize_code(f)
+        idx = text_lower.find(code.lower())
+        snippet = text_lower[idx:idx+200] if idx != -1 else ""
+
+        if "expired" in snippet:
+            status = "EXPIRED"
+        elif "active" in snippet or "valid" in snippet:
+            status = "ACTIVE"
+        else:
+            status = "UNKNOWN"
+
+        results.append({"code": code, "status": status})
+
+    return results
 
 
-def scan_trackers(urls: List[str], max_workers: int = 6) -> Dict[str, List[str]]:
+def scan_trackers(urls: List[str], max_workers: int = 6) -> Dict[str, List[Dict[str, str]]]:
     results = {}
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(fetch_page, url): url for url in urls}
@@ -97,10 +112,11 @@ def scan_trackers(urls: List[str], max_workers: int = 6) -> Dict[str, List[str]]
                 _, html = fut.result()
             except Exception:
                 html = ""
-            codes = extract_codes_from_html(html)
-            results[url] = sorted(set(codes))
+            codes_with_status = extract_codes_and_status_from_html(html)
+            results[url] = codes_with_status
             time.sleep(0.1)
     return results
+
 
 # ---------------------- Streamlit UI ----------------------
 
@@ -126,16 +142,15 @@ def main():
         with st.spinner("Scanning trackers..."):
             scanned = scan_trackers(urls, max_workers=workers)
 
-        # compile master list
-        master = set()
+        # compile master list with status
         rows = []
-        for url, codes in scanned.items():
-            for c in codes:
-                master.add(c)
-                rows.append({"source": url, "code": c})
+        for url, code_items in scanned.items():
+            for item in code_items:
+                rows.append({"source": url, "code": item["code"], "status": item["status"]})
 
         df = pd.DataFrame(rows)
         df = df.drop_duplicates().sort_values(by=["code"])
+
 
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -143,7 +158,10 @@ def main():
             st.dataframe(df)
 
             st.markdown("**Deduplicated list**")
-            st.code("\n".join(sorted(master)) or "(none)")
+            dedup = df.drop_duplicates(subset=["code"]).sort_values("code")
+            output = "\n".join([f"{row.code} ({row.status})" for _, row in dedup.iterrows()])
+            st.code(output or "(none)")
+
 
             buf = io.StringIO()
             df.to_csv(buf, index=False)
