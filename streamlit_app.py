@@ -44,7 +44,6 @@ TRACKERS = [
     "https://www.reddit.com/r/Borderlands/comments/1ns63l3/3_new_shift_codes_for_bl4/",
     "https://www.ign.com/wikis/borderlands-4/Borderlands_4_SHiFT_Codes",
     "https://www.polygon.com/borderlands-4-active-shift-codes-redeem/",
-    "https://x.com/DuvalMagic"
 
 ]
 
